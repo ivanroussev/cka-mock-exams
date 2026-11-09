@@ -75,7 +75,7 @@ setup_set() { # setup_set <setdir> [only-task-numbers]
       n="$(basename "$td" | cut -c1-2)"
       [ -n "$only" ] && ! contains_word "$only" "$n" && continue
       [ "$(meta "$td" PHASE)" = "$phase" ] || continue
-      info "Setting up question $n…"
+      info "Setting up question ${n}…"
       if ! run_task_script "$td" setup.sh >"$STATE/setup-$n.log" 2>&1; then
         warn "Setup for question $n failed (log: $STATE/setup-$n.log)"; failed=1
       fi
@@ -172,7 +172,7 @@ grade_set() {
     [ "$tot" -eq 0 ] && tot=1
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$w" "$pass" "$tot" "$skills" "$(basename "$td")" >> "$SESSION/grade.tsv"
     got=$(( got + w * pass * 100 / tot )); max=$(( max + w * 100 ))
-    if [ "$pass" -eq "$tot" ]; then line="$c_grn✓"; elif [ "$pass" -gt 0 ]; then line="$c_ylw◐"; else line="$c_red✗"; fi
+    if [ "$pass" -eq "$tot" ]; then line="${c_grn}✓"; elif [ "$pass" -gt 0 ]; then line="${c_ylw}◐"; else line="${c_red}✗"; fi
     printf '%s Q%-2s %3s%%  %s/%s checks%s  %s%s%s\n' "$line" "$i" "$w" "$pass" "$tot" "$c_off" "$c_dim" "$(basename "$td" | cut -c4-)" "$c_off"
     printf '%s\n' "$out" | grep '^FAIL ' | sed "s/^FAIL /      ${c_dim}missed: /;s/\$/${c_off}/"
   done
@@ -276,7 +276,7 @@ cmd_validate() {
   say ""; say "${c_b}2) Applying reference solutions${c_off}"
   for td in $(task_dirs "$sd"); do
     n="$(basename "$td" | cut -c1-2)"; [ -n "$only" ] && ! contains_word "$only" "$n" && continue
-    info "Solving $n…"
+    info "Solving ${n}…"
     run_task_script "$td" solution.sh >"$STATE/solve-$n.log" 2>&1 || warn "solution.sh for $n exited non-zero (log: $STATE/solve-$n.log)"
   done
   say ""; say "${c_b}3) Grade after solutions — should pass fully${c_off}"
