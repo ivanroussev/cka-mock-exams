@@ -1,0 +1,4 @@
+check "importer-reason.txt: why the loader container keeps dying" bash -c "[ \"\$(tr -d '[:space:]' < '$ANSWERS/importer-reason.txt')\" = OOMKilled ]"
+check "importer-exitcode.txt: its exit code" file_eq "$ANSWERS/importer-exitcode.txt" 137
+check "cruncher requests cpu 250m and is limited to 500m (spec and applied)" bash -c "[ \"\$(kubectl --context main -n crunch get pod cruncher -o jsonpath='{.spec.containers[0].resources.requests.cpu} {.spec.containers[0].resources.limits.cpu} {.status.containerStatuses[0].resources.requests.cpu} {.status.containerStatuses[0].resources.limits.cpu}')\" = '250m 500m 250m 500m' ]"
+check "cruncher is the same pod, never restarted, memory unchanged" bash -c "[ \"\$(kubectl --context main -n crunch get pod cruncher -o jsonpath='{.metadata.uid} {.status.containerStatuses[0].restartCount} {.spec.containers[0].resources.limits.memory}')\" = \"\$(cat '$STATE/m06-q02-uid') 0 64Mi\" ]"

@@ -1,0 +1,3 @@
+wait_for 60 bash -c "kubectl --context main -n invoicing logs deploy/pdf-renderer --previous 2>/dev/null | grep '^FATAL' > '$ANSWERS/pdf-renderer-error.txt' || kubectl --context main -n invoicing logs deploy/pdf-renderer | grep '^FATAL' > '$ANSWERS/pdf-renderer-error.txt'"
+kubectl --context main -n invoicing patch deploy pdf-renderer --type=json -p='[{"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"RENDER_QUEUE","valueFrom":{"configMapKeyRef":{"name":"pdf-renderer-config","key":"queue.name"}}}}]'
+kubectl --context main -n invoicing rollout status deploy/pdf-renderer --timeout=180s

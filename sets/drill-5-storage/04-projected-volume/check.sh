@@ -1,0 +1,5 @@
+check "pod portal is Ready" pod_ready main portal webcfg
+check "volume bundle is a projected volume mounted read-only at /etc/portal" bash -c "[ -n \"\$(kubectl --context main -n webcfg get pod portal -o jsonpath='{.spec.volumes[?(@.name==\"bundle\")].projected.sources}')\" ] && [ \"\$(kubectl --context main -n webcfg get pod portal -o jsonpath='{.spec.containers[0].volumeMounts[?(@.name==\"bundle\")].mountPath}|{.spec.containers[0].volumeMounts[?(@.name==\"bundle\")].readOnly}')\" = '/etc/portal|true' ]"
+check "/etc/portal/site.conf has the ConfigMap content" bash -c "kubectl --context main -n webcfg exec portal -- cat /etc/portal/site.conf | grep -q 'listen 8080;'"
+check "/etc/portal/auth/token has the Secret content" bash -c "kubectl --context main -n webcfg exec portal -- cat /etc/portal/auth/token | grep -q 's3cr3t-7f2a'"
+check "extra.conf is not mounted" bash -c "kubectl --context main -n webcfg exec portal -- ls /etc/portal >/dev/null && ! kubectl --context main -n webcfg exec portal -- test -e /etc/portal/extra.conf"

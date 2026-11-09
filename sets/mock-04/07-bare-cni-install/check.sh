@@ -1,0 +1,6 @@
+check "NotReady reason written" bash -c "
+  f='$ANSWERS/bare-notready.txt'; [ -s \"\$f\" ] && grep -Eqi 'network plugin|cni' \"\$f\" && grep -Eqi 'not ready|not initialized|uninitialized' \"\$f\""
+check "both bare nodes are Ready" bash -c "node_ready bare $BARE_CP && node_ready bare $BARE_W1"
+check "calico-node runs on both nodes and CoreDNS is ready" bash -c "
+  [ \"\$(kubectl --context bare -n kube-system get ds calico-node -o jsonpath='{.status.numberReady}')\" = 2 ] && deploy_ready bare coredns kube-system"
+check "CNI config file name" bash -c "file_eq '$ANSWERS/bare-cni-file.txt' \"\$(node_exec $BARE_W1 'ls /etc/cni/net.d/ | grep calico | grep conflist' | head -1)\" && [ -s '$ANSWERS/bare-cni-file.txt' ]"

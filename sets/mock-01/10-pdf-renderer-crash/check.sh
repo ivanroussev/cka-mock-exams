@@ -1,0 +1,4 @@
+check "FATAL line saved" bash -c "f='$ANSWERS/pdf-renderer-error.txt'; grep -q '^FATAL config: environment variable RENDER_QUEUE is not set' \$f && [ \$(grep -c . \$f) -eq 1 ]"
+check "RENDER_QUEUE comes from ConfigMap pdf-renderer-config key queue.name" bash -c "[ \"\$(kubectl --context main -n invoicing get deploy pdf-renderer -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"RENDER_QUEUE\")].valueFrom.configMapKeyRef.name}/{.spec.template.spec.containers[0].env[?(@.name==\"RENDER_QUEUE\")].valueFrom.configMapKeyRef.key}')\" = pdf-renderer-config/queue.name ]"
+check "2 replicas ready" bash -c "deploy_ready main pdf-renderer invoicing 2 && [ \"\$(kubectl --context main -n invoicing get deploy pdf-renderer -o jsonpath='{.status.updatedReplicas}')\" = 2 ]"
+check "renderer subscribed to queue invoices-high" bash -c "kubectl --context main -n invoicing logs deploy/pdf-renderer | grep -q 'subscribed to queue=invoices-high'"

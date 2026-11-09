@@ -1,0 +1,6 @@
+etcd_has() { node_exec "$ALT_CP" "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key get --keys-only --prefix /registry/configmaps/inventory/$1" | grep -q "inventory/$1"; }
+export -f etcd_has
+# Not the etcd mirror pod's status: after a restore the kubelet may report it as Pending for a while. Ask the node instead.
+check "etcd runs from /var/lib/etcd-restored" node_exec "$ALT_CP" "grep -q 'path: /var/lib/etcd-restored\$' /etc/kubernetes/manifests/etcd.yaml && test -d /var/lib/etcd-restored/member && [ -n \"\$(crictl ps --name '^etcd\$' --state running -q)\" ] && etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key endpoint health"
+check "the restored data is in etcd (deleted ConfigMaps back, later ConfigMap gone)" bash -c "etcd_has price-rules && etcd_has warehouse-map && ! etcd_has created-after-backup"
+check "the API server serves the restored ConfigMaps" bash -c "kubectl --context alt get --raw /readyz >/dev/null && kubectl --context alt -n inventory get configmap price-rules warehouse-map sku-catalog && ! kubectl --context alt -n inventory get configmap created-after-backup"

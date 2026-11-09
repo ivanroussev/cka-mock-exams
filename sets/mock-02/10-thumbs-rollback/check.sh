@@ -1,0 +1,4 @@
+check "good revision number written (2)" file_eq "$ANSWERS/thumbs-good-revision.txt" 2
+check "rolled back: TIER=gold, nginx:1.27-alpine, no crashing command" bash -c "[ \"\$(kubectl --context main -n gallery get deploy thumbs -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"TIER\")].value}|{.spec.template.spec.containers[0].image}|{.spec.template.spec.containers[0].command}')\" = \"gold|$IMG_NGINX|\" ]"
+check "3 replicas ready on the restored version" bash -c "[ \"\$(kubectl --context main -n gallery get deploy thumbs -o jsonpath='{.status.readyReplicas}/{.status.updatedReplicas}/{.status.replicas}')\" = 3/3/3 ]"
+check "strategy maxUnavailable 0, maxSurge 1" bash -c "[ \"\$(kubectl --context main -n gallery get deploy thumbs -o jsonpath='{.spec.strategy.rollingUpdate.maxUnavailable}/{.spec.strategy.rollingUpdate.maxSurge}')\" = 0/1 ]"

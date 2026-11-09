@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+# cka — CKA practice exams on kind clusters (and Lima VMs for kubeadm tasks).
+# Run `./cka help` for usage.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+export CKA_ROOT="$ROOT"
+source "$ROOT/lib/common.sh"
+source "$ROOT/lib/clusters.sh"
+SESSION="$STATE/session"
+
+usage() {
+  cat <<EOF
+${c_b}cka${c_off} — CKA practice on your Mac
+
+${c_b}Practice${c_off}
+  ./cka list                 List drills and mock exams
+  ./cka start <set>          Build the clusters, set up every task, start the timer
+  ./cka q [n]                Show all questions, or question n
+  ./cka time                 Time left
+  ./cka timer                Live countdown (run it in a second terminal tab)
+  ./cka grade                Grade your work (also unlocks solutions)
+  ./cka solution <n>         Show the worked solution for question n
+  ./cka stop                 Delete the practice clusters
+
+${c_b}Nodes${c_off}
+  ./cka ssh <node>           Shell on a node, e.g. ./cka ssh cka-main-worker or ./cka ssh cp1
+  ./cka vm <up|down|reset|status|scenario NAME>   The kubeadm VM lab (see docs/vm-lab.md)
+
+${c_b}Tracking${c_off}
+  ./cka progress             Your scores over time and by curriculum skill
+  ./cka coverage             Which curriculum skills each set covers
+
+${c_b}Maintenance${c_off}
+  ./cka validate <set> [task-number...]   Setup → grade (must fail) → solve → grade (must pass)
+
+Tip: export KUBECONFIG=$ROOT/.state/cka/kubeconfig  (./cka start prints this too)
+EOF
+}
+
+set_dir() { local d="$ROOT/sets/$1"; [ -d "$d" ] || die "No set called '$1'. Try ./cka list"; echo "$d"; }
+task_dirs() { local d; for d in "$1"/[0-9][0-9]-*/; do [ -d "$d" ] && echo "${d%/}"; done; }
+meta() { (WEIGHT=0; CONTEXT=main; SKILLS=""; PHASE=normal; LAB=kind; source "$1/meta"; eval "echo \"\$$2\""); }
+conf() { (TITLE=""; TYPE=drill; CLUSTERS=main; DURATION_MIN=120; VM_SCENARIO=""; source "$1/set.conf"; eval "echo \"\$$2\""); }
+
+# Run a task script with all helpers loaded. run_task_script <taskdir> <script>
+run_task_script() {
+  local td="$1" script="$2"
+  [ -f "$td/$script" ] || return 0
+  ( cd "$td" && TASK_DIR="$td" bash -c '
+      set -u
+      source "$CKA_ROOT/lib/common.sh"; source "$CKA_ROOT/lib/clusters.sh"
+      source "$CKA_ROOT/lib/check.sh";  source "$CKA_ROOT/lib/vm.sh"
+      export -f $(sed -n "s/^\([A-Za-z_][A-Za-z0-9_]*\)() *{.*/\1/p" "$CKA_ROOT"/lib/*.sh)   # our helpers work inside bash -c "…" too
+      source "$1"' _ "$td/$script" )
+}
+
+render() { # replace placeholders in task text
+  sed -e "s#{{ANSWERS}}#$ANSWERS#g" -e "s#{{FILES}}#$FILES#g" -e "s#{{ROOT}}#$ROOT#g" "$1"
+}
+
+cmd_list() {
+  local d
+  printf '%s%-28s %-6s %-6s %s%s\n' "$c_b" SET TYPE TASKS TITLE "$c_off"
+  for d in "$ROOT"/sets/*/; do
+    d="${d%/}"; [ -f "$d/set.conf" ] || continue
+    printf '%-28s %-6s %-6s %s\n' "$(basename "$d")" "$(conf "$d" TYPE)" "$(task_dirs "$d" | wc -l | tr -d ' ')" "$(conf "$d" TITLE)"
+  done
+}
+
+setup_set() { # setup_set <setdir> [only-task-numbers]
+  local sd="$1" only="${2:-}" td n phase failed=0
+  rm -rf "$ANSWERS" "$FILES"; mkdir -p "$ANSWERS" "$FILES"
+  for phase in normal late; do
+    for td in $(task_dirs "$sd"); do
+      n="$(basename "$td" | cut -c1-2)"
+      [ -n "$only" ] && ! contains_word "$only" "$n" && continue
+      [ "$(meta "$td" PHASE)" = "$phase" ] || continue
+      info "Setting up question $n…"
+      if ! run_task_script "$td" setup.sh >"$STATE/setup-$n.log" 2>&1; then
+        warn "Setup for question $n failed (log: $STATE/setup-$n.log)"; failed=1
+      fi
+    done
+  done
+  return $failed
+}
+contains_word() { case " $1 " in *" $2 "*) return 0;; esac; return 1; }
+
+write_questions() { # write_questions <setdir> <outfile>
+  local sd="$1" out="$2" td n i=0 total=0 w
+  for td in $(task_dirs "$sd"); do total=$((total + $(meta "$td" WEIGHT))); done
+  {
+    echo "# $(conf "$sd" TITLE)"
+    echo
+    echo "- **Time:** $(conf "$sd" DURATION_MIN) minutes · **Questions:** $(task_dirs "$sd" | wc -l | tr -d ' ') · **Pass mark:** 66%"
+    echo "- Switch context at the start of **every** question. Answer files go in \`$ANSWERS\`."
+    echo "- Reach nodes with \`./cka ssh <node>\` (the exam uses \`ssh <node>\`). Allowed docs: kubernetes.io/docs, kubernetes.io/blog, helm.sh/docs, gateway-api.sigs.k8s.io."
+    echo
+    for td in $(task_dirs "$sd"); do
+      i=$((i+1)); w="$(meta "$td" WEIGHT)"
+      echo "---"
+      echo
+      echo "## Question $i  ·  weight $w%  ·  context \`$(meta "$td" CONTEXT)\`"
+      echo
+      case "$(meta "$td" CONTEXT)" in
+        vm) echo "> This question uses the VM lab. Reach the nodes with \`./cka ssh <node>\`." ;;
+        *)  echo "\`\`\`bash"; echo "kubectl config use-context $(meta "$td" CONTEXT)"; echo "\`\`\`" ;;
+      esac
+      echo
+      render "$td/task.md"
+      echo
+    done
+  } > "$out"
+}
+
+cmd_start() {
+  local name="${1:-}"; [ -n "$name" ] || die "Usage: ./cka start <set>   (./cka list shows them)"
+  local sd; sd="$(set_dir "$name")" || exit 1
+  say "${c_b}Preparing $(conf "$sd" TITLE)${c_off} — this takes a few minutes. Don't peek at the clusters yet."
+  delete_clusters
+  rm -rf "$SESSION"; mkdir -p "$SESSION"
+  info "Creating clusters: $(conf "$sd" CLUSTERS)"
+  create_clusters "$(conf "$sd" CLUSTERS)"
+  [ -n "$(conf "$sd" VM_SCENARIO)" ] && { vm_scenario "$(conf "$sd" VM_SCENARIO)" || die "VM lab setup failed"; }
+  setup_set "$sd" || warn "Some setups failed. The affected questions may not grade correctly."
+  write_questions "$sd" "$SESSION/questions.md"
+  echo "$name" > "$SESSION/set"
+  echo $(( $(date +%s) + $(conf "$sd" DURATION_MIN) * 60 )) > "$SESSION/deadline"
+  date +%s > "$SESSION/started"
+  say ""
+  say "${c_grn}✓ Ready. Your $(conf "$sd" DURATION_MIN)-minute timer has started.${c_off}"
+  say ""
+  say "  1. In your terminal:  ${c_b}export KUBECONFIG=$KUBECONFIG${c_off}"
+  say "  2. Questions:         ${c_b}$SESSION/questions.md${c_off}   (or ./cka q 1)"
+  say "  3. Countdown:         ./cka timer   (in another tab)"
+  say "  4. When done:         ./cka grade"
+}
+
+require_session() { [ -f "$SESSION/set" ] || die "No session running. Start one with ./cka start <set>"; }
+
+cmd_q() {
+  require_session
+  if [ -z "${1:-}" ]; then cat "$SESSION/questions.md"; return; fi
+  awk -v n="$1" '/^## Question /{q=$3} q==n' "$SESSION/questions.md"
+}
+
+fmt_time() { local s="$1" sign=""; [ "$s" -lt 0 ] && { sign="-"; s=$((-s)); }; printf '%s%d:%02d' "$sign" $((s/60)) $((s%60)); }
+cmd_time() {
+  require_session
+  local left=$(( $(cat "$SESSION/deadline") - $(date +%s) ))
+  if [ "$left" -gt 0 ]; then say "⏱  $(fmt_time $left) left"; else say "${c_red}⏱  Time's up ($(fmt_time $((-left))) over)${c_off}"; fi
+}
+cmd_timer() {
+  require_session
+  while :; do
+    local left=$(( $(cat "$SESSION/deadline") - $(date +%s) ))
+    if [ "$left" -le 0 ]; then printf '\r%s⏱  TIME IS UP — stop and run ./cka grade%s\a\n' "$c_red" "$c_off"; break; fi
+    local col="$c_off"; [ "$left" -le 900 ] && col="$c_ylw"; [ "$left" -le 300 ] && col="$c_red"
+    printf '\r%s⏱  %s left  %s' "$col" "$(fmt_time $left)" "$c_off"; sleep 1
+  done
+}
+
+# grade_set <setdir> <label> [only] → prints a table, writes $SESSION/grade.tsv (n, weight, passed, total, skills)
+grade_set() {
+  local sd="$1" only="${2:-}" td n i=0 w out pass tot got=0 max=0 line pct skills
+  mkdir -p "$SESSION"; : > "$SESSION/grade.tsv"
+  for td in $(task_dirs "$sd"); do
+    i=$((i+1)); n="$(basename "$td" | cut -c1-2)"
+    [ -n "$only" ] && ! contains_word "$only" "$n" && continue
+    w="$(meta "$td" WEIGHT)"; skills="$(meta "$td" SKILLS)"
+    out="$(run_task_script "$td" check.sh 2>/dev/null)"
+    pass="$(printf '%s\n' "$out" | grep -c '^PASS ')"; tot="$(printf '%s\n' "$out" | grep -cE '^(PASS|FAIL) ')"
+    [ "$tot" -eq 0 ] && tot=1
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$w" "$pass" "$tot" "$skills" "$(basename "$td")" >> "$SESSION/grade.tsv"
+    got=$(( got + w * pass * 100 / tot )); max=$(( max + w * 100 ))
+    if [ "$pass" -eq "$tot" ]; then line="$c_grn✓"; elif [ "$pass" -gt 0 ]; then line="$c_ylw◐"; else line="$c_red✗"; fi
+    printf '%s Q%-2s %3s%%  %s/%s checks%s  %s%s%s\n' "$line" "$i" "$w" "$pass" "$tot" "$c_off" "$c_dim" "$(basename "$td" | cut -c4-)" "$c_off"
+    printf '%s\n' "$out" | grep '^FAIL ' | sed "s/^FAIL /      ${c_dim}missed: /;s/\$/${c_off}/"
+  done
+  [ "$max" -gt 0 ] && pct=$(( got * 100 / max )) || pct=0
+  echo "$pct" > "$SESSION/score"
+}
+
+cmd_grade() {
+  require_session
+  local name sd pct used
+  name="$(cat "$SESSION/set")"; sd="$(set_dir "$name")"
+  say "${c_b}Grading $(conf "$sd" TITLE)${c_off}"; say ""
+  grade_set "$sd"
+  pct="$(cat "$SESSION/score")"; used=$(( ($(date +%s) - $(cat "$SESSION/started")) / 60 ))
+  say ""
+  if [ "$pct" -ge 66 ]; then say "${c_grn}${c_b}Score: $pct% — PASS${c_off} (66% needed) · ${used} min used"
+  else say "${c_red}${c_b}Score: $pct% — not yet${c_off} (66% needed) · ${used} min used"; fi
+  touch "$SESSION/graded"
+  local when; when="$(date '+%Y-%m-%d %H:%M')"
+  local hist="$ROOT/.state/progress.tsv" skills="$ROOT/.state/skills.tsv"
+  printf '%s\t%s\t%s\t%s\n' "$when" "$name" "$pct" "$used" >> "$hist"
+  awk -F'\t' -v when="$when" -v set="$name" '{ n=split($5, s, " "); for (i=1;i<=n;i++) printf "%s\t%s\t%s\t%s\t%s\n", when, set, s[i], $3, $4 }' "$SESSION/grade.tsv" >> "$skills"
+  say ""; say "Solutions are unlocked: ./cka solution <n>"
+}
+
+cmd_solution() {
+  require_session
+  local want="${1:-}" sd td i=0; [ -n "$want" ] || die "Usage: ./cka solution <question number>"
+  [ -f "$SESSION/graded" ] || [ "${2:-}" = "--peek" ] || die "Grade first (./cka grade). To look anyway: ./cka solution $want --peek"
+  sd="$(set_dir "$(cat "$SESSION/set")")"
+  for td in $(task_dirs "$sd"); do
+    i=$((i+1)); [ "$i" = "$want" ] || continue
+    say "${c_b}Question $i — solution${c_off}"; say ""; render "$td/solution.md"; return
+  done
+  die "No question $want in this set"
+}
+
+cmd_progress() {
+  local hist="$ROOT/.state/progress.tsv" skills="$ROOT/.state/skills.tsv"
+  [ -f "$hist" ] || die "No graded attempts yet."
+  say "${c_b}Attempts${c_off}"
+  awk -F'\t' '{ printf "  %s  %-26s %3s%%  %s min\n", $1, $2, $3, $4 }' "$hist"
+  say ""; say "${c_b}By curriculum skill${c_off} (all attempts, checks passed / total)"
+  awk -F'\t' 'NR==FNR { if ($0 !~ /^#/) { split($0, a, "|"); name[a[1]]=a[3]; order[++k]=a[1] } next }
+    { p[$3]+=$4; t[$3]+=$5 }
+    END { for (i=1;i<=k;i++) { id=order[i]; if (t[id]) { pct=int(p[id]*100/t[id]); bar=""; for(j=0;j<pct/10;j++) bar=bar "█";
+            printf "  %-4s %3d%%  %-10s %s\n", id, pct, bar, name[id] } else printf "  %-4s   —   %-10s %s\n", id, "", name[id] } }' \
+    "$ROOT/lib/skills.txt" "$skills"
+}
+
+cmd_coverage() {
+  local sd td s
+  printf '%s%-5s %-58s %s%s\n' "$c_b" SKILL DESCRIPTION SETS "$c_off"
+  grep -v '^#' "$ROOT/lib/skills.txt" | while IFS='|' read -r id dom text; do
+    local where="" count=0
+    for sd in "$ROOT"/sets/*/; do
+      sd="${sd%/}"; [ -f "$sd/set.conf" ] || continue
+      for td in $(task_dirs "$sd"); do
+        if contains_word "$(meta "$td" SKILLS)" "$id"; then where="$where $(basename "$sd")/$(basename "$td" | cut -c1-2)"; count=$((count+1)); fi
+      done
+    done
+    local col="$c_grn"; [ "$count" -lt 3 ] && col="$c_ylw"; [ "$count" -eq 0 ] && col="$c_red"
+    printf '%s%-5s%s %-58.58s %s%2d%s %s%s%s\n' "$c_b" "$id" "$c_off" "$text" "$col" "$count" "$c_off" "$c_dim" "$where" "$c_off"
+  done
+}
+
+# At most 3 validations run at the same time (Docker has 16 GB).
+acquire_slot() {
+  local d="$ROOT/.state/slots" i
+  mkdir -p "$d"
+  while :; do
+    for i in 1 2 3; do
+      if [ -d "$d/$i" ] && ! kill -0 "$(cat "$d/$i/pid" 2>/dev/null)" 2>/dev/null; then rm -rf "$d/$i"; fi
+      if mkdir "$d/$i" 2>/dev/null; then echo $$ > "$d/$i/pid"; SLOT="$d/$i"; trap 'rm -rf "$SLOT"' EXIT; return; fi
+    done
+    info "Waiting for a free validation slot…"; sleep 20
+  done
+}
+
+cmd_validate() {
+  local name="${1:-}"; shift || true; [ -n "$name" ] || die "Usage: ./cka validate <set> [task-numbers...]"
+  local only="$*" sd td n bad=0 keep="${KEEP:-0}"
+  sd="$(set_dir "$name")"
+  # Use an isolated ID so validation never touches your own session.
+  [ "$CKA_ID" = cka ] && die "Run validation with its own ID, e.g. CKA_ID=val ./cka validate $name"
+  # SKIP_VM=1: leave the VM lab alone and validate only the kind questions.
+  if [ "${SKIP_VM:-0}" = 1 ] && [ -z "$only" ]; then
+    for td in $(task_dirs "$sd"); do [ "$(meta "$td" CONTEXT)" = vm ] || only="$only $(basename "$td" | cut -c1-2)"; done
+    [ -n "$only" ] || die "Every question in $name uses the VM lab."
+  fi
+  acquire_slot
+  say "${c_b}Validating $name${c_off} (CKA_ID=$CKA_ID${only:+, questions:$only})"
+  delete_clusters; rm -rf "$SESSION"; mkdir -p "$SESSION"
+  create_clusters "$(conf "$sd" CLUSTERS)"
+  if [ -n "$(conf "$sd" VM_SCENARIO)" ] && [ "${SKIP_VM:-0}" != 1 ]; then
+    vm_scenario "$(conf "$sd" VM_SCENARIO)" || die "VM lab setup failed"
+  fi
+  setup_set "$sd" "$only" || bad=1
+  say ""; say "${c_b}1) Grade right after setup — should NOT pass${c_off}"
+  grade_set "$sd" "$only"; cp "$SESSION/grade.tsv" "$SESSION/before.tsv"
+  say ""; say "${c_b}2) Applying reference solutions${c_off}"
+  for td in $(task_dirs "$sd"); do
+    n="$(basename "$td" | cut -c1-2)"; [ -n "$only" ] && ! contains_word "$only" "$n" && continue
+    info "Solving $n…"
+    run_task_script "$td" solution.sh >"$STATE/solve-$n.log" 2>&1 || warn "solution.sh for $n exited non-zero (log: $STATE/solve-$n.log)"
+  done
+  say ""; say "${c_b}3) Grade after solutions — should pass fully${c_off}"
+  grade_set "$sd" "$only"
+  say ""; say "${c_b}Result${c_off}"
+  while IFS="$(printf '\t')" read -r n w p t s dir; do
+    local bp; bp="$(awk -F'\t' -v n="$n" '$1==n{print $3"/"$4}' "$SESSION/before.tsv")"
+    if [ "$p" != "$t" ]; then say "${c_red}✗ $dir: solution only scores $p/$t${c_off}"; bad=1
+    elif [ "${bp%/*}" = "${bp#*/}" ]; then say "${c_red}✗ $dir: already fully passes before solving ($bp)${c_off}"; bad=1
+    else say "${c_grn}✓ $dir${c_off}  ${c_dim}(before $bp, after $p/$t)${c_off}"; fi
+  done < "$SESSION/grade.tsv"
+  [ "$keep" = 1 ] || delete_clusters
+  return $bad
+}
+
+source "$ROOT/lib/vm.sh"
+cmd_ssh() {
+  local node="${1:-}"; [ -n "$node" ] || die "Usage: ./cka ssh <node>"
+  if docker inspect "$node" >/dev/null 2>&1; then exec docker exec -it "$node" bash -l
+  elif limactl list -q 2>/dev/null | grep -qx "$node"; then exec limactl shell --workdir /root "$node" sudo -i
+  else die "No node called $node. kind nodes: $(docker ps --format '{{.Names}}' | grep -- "-control-plane\|-worker" | tr '\n' ' ') VMs: $(limactl list -q 2>/dev/null | tr '\n' ' ')"; fi
+}
+
+case "${1:-help}" in
+  list) cmd_list;;
+  start) shift; cmd_start "$@";;
+  q|question) shift; cmd_q "$@";;
+  time) cmd_time;;
+  timer) cmd_timer;;
+  grade) cmd_grade;;
+  solution|sol) shift; cmd_solution "$@";;
+  stop) delete_clusters; rm -rf "$SESSION"; say "Clusters deleted.";;
+  ssh) shift; cmd_ssh "$@";;
+  vm) shift; vm_cmd "$@";;
+  progress) cmd_progress;;
+  coverage) cmd_coverage;;
+  validate) shift; cmd_validate "$@";;
+  help|-h|--help) usage;;
+  *) usage; exit 1;;
+esac

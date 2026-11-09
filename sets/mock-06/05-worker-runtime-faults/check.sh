@@ -1,0 +1,4 @@
+check "node $ALT_W1 is Ready" node_ready alt "$ALT_W1"
+check "containerd is running and enabled at boot" node_exec "$ALT_W1" "systemctl is-active containerd && systemctl is-enabled containerd"
+check "kubelet talks to containerd's CRI socket" node_exec "$ALT_W1" "systemctl is-active kubelet && ! grep -q crio /var/lib/kubelet/config.yaml /var/lib/kubelet/kubeadm-flags.env && { ! grep -q '^containerRuntimeEndpoint:' /var/lib/kubelet/config.yaml || grep -q '^containerRuntimeEndpoint: unix:///run/containerd/containerd.sock' /var/lib/kubelet/config.yaml; }"
+check "kube-proxy and kindnet run on $ALT_W1" bash -c "[ \$(kubectl --context alt -n kube-system get pods --field-selector spec.nodeName=$ALT_W1 -o jsonpath='{range .items[*]}{.status.containerStatuses[0].ready}{\"\\n\"}{end}' | grep -c true) -ge 2 ]"

@@ -1,0 +1,5 @@
+SA=system:serviceaccount:widget-system:widget-operator
+check "overlays/prod renders base + rbac component with label env=prod and 2 replicas" bash -c "out=\$(kubectl kustomize '$FILES/widget-operator/overlays/prod' 2>/dev/null) && echo \"\$out\" | grep -q 'kind: ClusterRoleBinding' && echo \"\$out\" | grep -q 'kind: CustomResourceDefinition' && echo \"\$out\" | grep -q 'env: prod' && echo \"\$out\" | grep -q 'replicas: 2'"
+check "the operator may list and watch Widgets in all namespaces" bash -c "can_i main 'list widgets.apps.example.com -A' $SA && can_i main 'watch widgets.apps.example.com -A' $SA"
+check "widget-operator in widget-system: 2/2 ready, labelled env=prod" bash -c "deploy_ready main widget-operator widget-system 2 && [ \"\$(kubectl --context main -n widget-system get deploy widget-operator -o jsonpath='{.metadata.labels.env}')\" = prod ] && [ \"\$(kubectl --context main get clusterrole widget-operator -o jsonpath='{.metadata.labels.env}')\" = prod ]"
+check "Widget demo (size 3) exists in widget-system" bash -c "[ \"\$(kubectl --context main -n widget-system get widgets.apps.example.com demo -o jsonpath='{.spec.size}')\" = 3 ]"

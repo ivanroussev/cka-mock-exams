@@ -1,0 +1,4 @@
+.state/
+*.tgz
+.cache/
+.DS_Store

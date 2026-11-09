@@ -1,0 +1,6 @@
+retry() { "$@" && return 0; sleep 4; "$@"; }   # in-cluster probes can flake on a loaded laptop
+teller() { kubectl --context main -n ledger exec deploy/teller -c teller -- "$@"; }
+check "Service accounts still listens on port 8080 and its endpoints point at port 9090" bash -c "[ \"\$(kubectl --context main -n ledger get svc accounts -o jsonpath='{.spec.ports[0].port}')\" = 8080 ] && [ \"\$(kubectl --context main -n ledger get endpointslices -l kubernetes.io/service-name=accounts -o jsonpath='{.items[0].ports[0].port}')\" = 9090 ]"
+check "teller resolves cluster service names" retry teller nslookup accounts.ledger.svc.cluster.local
+check "teller gets a response from http://accounts:8080" retry bash -c "kubectl --context main -n ledger exec deploy/teller -c teller -- wget -qO- -T 3 http://accounts:8080 | grep -q 'balance service ok'"
+check "default-deny-all is unchanged and other pods still can't reach accounts" bash -c "[ \"\$(kubectl --context main -n ledger get netpol default-deny-all -o jsonpath='{.spec.podSelector} {.spec.policyTypes}')\" = '{} [\"Ingress\",\"Egress\"]' ] && [ -z \"\$(kubectl --context main -n ledger get netpol default-deny-all -o jsonpath='{.spec.ingress}{.spec.egress}')\" ] && http_blocked_as main ledger app=intruder http://accounts:8080"

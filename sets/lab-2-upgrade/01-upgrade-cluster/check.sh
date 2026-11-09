@@ -1,0 +1,7 @@
+check "cp1 kubelet is v1.37"   bash -c "vm_kubectl get node cp1 -o jsonpath='{.status.nodeInfo.kubeletVersion}' | grep -q '^v1.37\.'"
+check "control plane (API server) is v1.37" bash -c "vm_kubectl version -o json | grep -A3 serverVersion | grep -q '\"minor\": \"37\"'"
+check "w1 kubelet is v1.37"    bash -c "vm_kubectl get node w1 -o jsonpath='{.status.nodeInfo.kubeletVersion}' | grep -q '^v1.37\.'"
+check "kubeadm is v1.37 on cp1 and w1" bash -c "node_exec cp1 'kubeadm version -o short' | grep -q '^v1.37' && node_exec w1 'kubeadm version -o short' | grep -q '^v1.37'"
+check "kubectl is v1.37 on cp1" bash -c "node_exec cp1 'kubectl version --client -o json' | grep -q '\"minor\": \"37\"'"
+check "both nodes Ready and schedulable" bash -c "[ -z \"\$(vm_kubectl get nodes -o jsonpath='{.items[*].spec.unschedulable}')\" ] && vm_kubectl get nodes --no-headers | awk '\$2!=\"Ready\"{exit 1}'"
+check "deployment web still running" bash -c "[ \"\$(vm_kubectl get deploy web -o jsonpath='{.status.readyReplicas}')\" = 2 ]"

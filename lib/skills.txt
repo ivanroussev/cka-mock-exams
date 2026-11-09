@@ -1,0 +1,28 @@
+# ID|Domain|Skill — the official CKA curriculum, Kubernetes v1.37 (cncf/curriculum, Oct 2026)
+S1|Storage 10%|Implement storage classes and dynamic volume provisioning
+S2|Storage 10%|Configure volume types, access modes and reclaim policies
+S3|Storage 10%|Manage persistent volumes and persistent volume claims
+T1|Troubleshooting 30%|Troubleshoot clusters and nodes
+T2|Troubleshooting 30%|Troubleshoot cluster components
+T3|Troubleshooting 30%|Monitor cluster and application resource usage
+T4|Troubleshooting 30%|Manage and evaluate container output streams
+T5|Troubleshooting 30%|Troubleshoot services and networking
+W1|Workloads & Scheduling 15%|Application deployments, rolling updates and rollbacks
+W2|Workloads & Scheduling 15%|Use ConfigMaps and Secrets to configure applications
+W3|Workloads & Scheduling 15%|Configure workload autoscaling
+W4|Workloads & Scheduling 15%|Primitives for robust, self-healing application deployments
+W5|Workloads & Scheduling 15%|Configure Pod admission and scheduling (limits, node affinity, etc.)
+A1|Cluster Architecture 25%|Manage role based access control (RBAC)
+A2|Cluster Architecture 25%|Prepare underlying infrastructure for installing a Kubernetes cluster
+A3|Cluster Architecture 25%|Create and manage Kubernetes clusters using kubeadm
+A4|Cluster Architecture 25%|Manage the lifecycle of Kubernetes clusters
+A5|Cluster Architecture 25%|Implement and configure a highly-available control plane
+A6|Cluster Architecture 25%|Use Helm and Kustomize to install cluster components
+A7|Cluster Architecture 25%|Understand extension interfaces (CNI, CSI, CRI, etc.)
+A8|Cluster Architecture 25%|Understand CRDs, install and configure operators
+N1|Services & Networking 20%|Understand connectivity between Pods
+N2|Services & Networking 20%|Define and enforce Network Policies
+N3|Services & Networking 20%|Use ClusterIP, NodePort, LoadBalancer service types and endpoints
+N4|Services & Networking 20%|Use the Gateway API to manage Ingress traffic
+N5|Services & Networking 20%|Know how to use Ingress controllers and Ingress resources
+N6|Services & Networking 20%|Understand and use CoreDNS

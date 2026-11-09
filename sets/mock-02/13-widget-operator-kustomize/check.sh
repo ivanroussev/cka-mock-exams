@@ -1,0 +1,5 @@
+O="$FILES/widget-operator/overlays/prod"
+check "overlay builds, uses the unchanged base" bash -c "(cd '$FILES/widget-operator/base' && shasum -c '$STATE/widget-base.sha') && kubectl kustomize '$O' | grep -q 'namespace: widgets-prod' && grep -q 'base' '$O/kustomization.yaml'"
+check "widget-controller in widgets-prod: 2 ready replicas of nginx:1.28-alpine" bash -c "deploy_ready main widget-controller widgets-prod 2 && [ \"\$(kubectl --context main -n widgets-prod get deploy widget-controller -o jsonpath='{.spec.template.spec.containers[0].image}|{.status.updatedReplicas}')\" = \"$IMG_NGINX2|2\" ]"
+check "resources carry env=prod (deployment, serviceaccount, CRD)" bash -c "[ \"\$(kubectl --context main -n widgets-prod get deploy/widget-controller sa/widget-controller -o jsonpath='{range .items[*]}{.metadata.labels.env}{end}')\" = prodprod ] && [ \"\$(kubectl --context main get crd widgets.acme.example.com -o jsonpath='{.metadata.labels.env}')\" = prod ]"
+check "Widget blue (color blue, size 3) exists in widgets-prod" bash -c "[ \"\$(kubectl --context main -n widgets-prod get widgets.acme.example.com blue -o jsonpath='{.spec.color}/{.spec.size}')\" = blue/3 ]"

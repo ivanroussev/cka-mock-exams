@@ -1,0 +1,5 @@
+retry() { "$@" && return 0; sleep 4; "$@"; }   # in-cluster probes can flake on a loaded laptop
+check "all 3 catalog pods are Ready" deploy_ready main catalog shop-prod 3
+check "Service catalog has 3 endpoints" bash -c "[ \$(kubectl --context main -n shop-prod get endpointslices -l kubernetes.io/service-name=catalog -o jsonpath='{range .items[*].endpoints[*]}{.conditions.ready}{\"\\n\"}{end}' | grep -c true) -eq 3 ]"
+check "storefront gets the catalog page from http://catalog.shop-prod" retry bash -c "kubectl --context main -n shop-frontend exec storefront -- wget -qO- -T 3 http://catalog.shop-prod | grep -q 'Welcome to nginx'"
+check "NetworkPolicy unchanged and other namespaces are still blocked" bash -c "[ \"\$(kubectl --context main -n shop-prod get netpol catalog-ingress -o jsonpath='{.spec.ingress[0].from[0].namespaceSelector.matchLabels.team} {.spec.podSelector.matchLabels.app}')\" = 'frontend catalog' ] && [ \$(kubectl --context main -n shop-prod get netpol -o name | wc -l) -eq 1 ] && http_blocked main shop-tools http://catalog.shop-prod"

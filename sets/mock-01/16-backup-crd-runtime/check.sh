@@ -1,0 +1,5 @@
+check "CRD backupschedules.ops.example.com is established" bash -c "[ \"\$(kubectl --context main get crd backupschedules.ops.example.com -o jsonpath='{.status.conditions[?(@.type==\"Established\")].status}')\" = True ]"
+check "BackupSchedule orders-nightly has the requested spec" bash -c "[ \"\$(kubectl --context main -n orders-ops get backupschedules.ops.example.com orders-nightly -o jsonpath='{.spec.schedule}|{.spec.retentionDays}|{.spec.target}')\" = '0 2 * * *|14|orders-db' ]"
+check "ops-crds.txt lists exactly the ops.example.com CRDs" bash -c "[ \"\$(tr -d ' \t\r' < '$ANSWERS/ops-crds.txt' | grep . | sort)\" = \"\$(printf 'backupschedules.ops.example.com\nrestorejobs.ops.example.com')\" ]"
+check "CRI endpoint of cka-main-worker" bash -c "f=\$(tr -d '[:space:]' < '$ANSWERS/cri-endpoint.txt'); [ \"\$f\" = unix:///run/containerd/containerd.sock ] || [ \"\$f\" = /run/containerd/containerd.sock ]"
+check "CNI config file name" bash -c "file_eq '$ANSWERS/cni-config.txt' \"\$(node_exec $MAIN_W1 'ls /etc/cni/net.d' | sort | head -1)\""

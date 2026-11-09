@@ -1,0 +1,4 @@
+WEIGHT=7
+CONTEXT=bare
+SKILLS="T1 T2"
+PHASE=late
