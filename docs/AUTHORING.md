@@ -95,7 +95,7 @@ Don't edit `lib/` or `cka`. If you need another helper, define it at the top of 
 - **`kubectl autoscale --cpu=65`** means 65 millicores; the percentage needs `--cpu=65%`.
 - **Namespaces named like another question's Service** (e.g. ns `catalog` and a Service `catalog`) create DNS search-path surprises. Keep names distinct.
 - **Under load** the API server can briefly return EOF, TLS timeouts or even Forbidden right after a restart. Wrap setup steps that must succeed in `wait_for`.
-- **Scratch files:** prefix them with your CKA_ID; the scratchpad is shared between writers.
+- **Scratch files:** prefix them with your CKA_ID when several people validate at once.
 - Kept clusters (`KEEP=1`) are not counted against the 3 validation slots. Run `./cka stop` as soon as you're done debugging.
 
 ## Skill IDs (lib/skills.txt)
