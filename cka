@@ -137,10 +137,15 @@ cmd_start() {
 
 require_session() { [ -f "$SESSION/set" ] || die "No session running. Start one with ./cka start <set>"; }
 
+# In a terminal, wrap long lines at word boundaries instead of mid-word.
+wrap() {
+  local cols; cols="$(stty size </dev/tty 2>/dev/null | awk '{print $2}')"
+  if [ -t 1 ] && [ "${cols:-0}" -gt 20 ]; then fold -s -w $((cols - 1)); else cat; fi
+}
 cmd_q() {
   require_session
-  if [ -z "${1:-}" ]; then cat "$SESSION/questions.md"; return; fi
-  awk -v n="$1" '/^## Question /{q=$3} q==n' "$SESSION/questions.md"
+  if [ -z "${1:-}" ]; then wrap < "$SESSION/questions.md"; return; fi
+  awk -v n="$1" '/^## Question /{q=$3} q==n' "$SESSION/questions.md" | wrap
 }
 
 fmt_time() { local s="$1" sign=""; [ "$s" -lt 0 ] && { sign="-"; s=$((-s)); }; printf '%s%d:%02d' "$sign" $((s/60)) $((s%60)); }
