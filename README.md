@@ -1,8 +1,10 @@
-# CKA practice
+# CKA mock exams
 
 Timed, auto-graded CKA practice exams on your Mac. Every question is built from the official curriculum
 (**Kubernetes v1.37**, cncf/curriculum, Oct 2026).
 Clusters run on [kind](https://kind.sigs.k8s.io). kubeadm questions (installing, upgrading and HA) run on small Ubuntu VMs through [Lima](https://lima-vm.io).
+
+![Reading a question, solving it with kubectl and grading it](docs/trailer.gif)
 
 ## Quick start
 
